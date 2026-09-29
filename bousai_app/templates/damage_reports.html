@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+
+{% block title %}被害情報一覧 | 防災アプリ{% endblock %}
+
+{% block content %}
+<section class="damage-dashboard" aria-label="被害情報マップ">
+  <div class="damage-toolbar">
+    <div class="damage-heading">
+      <h1>被害情報一覧</h1>
+      <p><strong>{{ reports|length }}</strong>件の報告</p>
+    </div>
+    <a class="damage-register-link" href="{{ url_for('damage_report_register') }}">デモ投稿を登録</a>
+    <label class="damage-heat-toggle" for="heatmapToggle">
+      <input id="heatmapToggle" type="checkbox" aria-label="ヒートマップを表示">
+      <span>ヒートマップ</span>
+    </label>
+    <div class="damage-view-switch" role="tablist" aria-label="表示形式">
+      <button id="mapTab" class="damage-view-toggle is-active" type="button" role="tab" aria-selected="true" aria-controls="damageMapPanel" tabindex="0">地図</button>
+      <button id="listTab" class="damage-view-toggle" type="button" role="tab" aria-selected="false" aria-controls="damageListPanel" tabindex="-1">一覧</button>
+    </div>
+  </div>
+  <div id="damageMapPanel" class="damage-view-panel" role="tabpanel" aria-labelledby="mapTab">
+    <div id="damageMap" class="damage-map" aria-label="被害情報の位置を示す地図"></div>
+  </div>
+  <section id="damageListPanel" class="damage-view-panel damage-table-panel" role="tabpanel" aria-labelledby="listTab" hidden>
+    <h2 class="damage-table-heading">投稿一覧</h2>
+    <div class="damage-table-wrap">
+      <table class="damage-table">
+        <thead>
+          <tr>
+            <th scope="col" aria-sort="none"><button class="damage-sort-button" type="button" data-sort-key="reported_at">投稿日時 <span class="damage-sort-indicator" aria-hidden="true">↕</span></button></th>
+            <th scope="col" aria-sort="none"><button class="damage-sort-button" type="button" data-sort-key="category">種別 <span class="damage-sort-indicator" aria-hidden="true">↕</span></button></th>
+            <th scope="col" aria-sort="none"><button class="damage-sort-button" type="button" data-sort-key="comment">コメント <span class="damage-sort-indicator" aria-hidden="true">↕</span></button></th>
+            <th scope="col" aria-sort="none"><button class="damage-sort-button" type="button" data-sort-key="location">位置 <span class="damage-sort-indicator" aria-hidden="true">↕</span></button></th>
+            <th scope="col">写真</th>
+            <th scope="col" aria-sort="none"><button class="damage-sort-button" type="button" data-sort-key="confirmed">確認済み <span class="damage-sort-indicator" aria-hidden="true">↕</span></button></th>
+            <th scope="col">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for report in reports %}
+          <tr data-reported-at="{{ report.reported_at }}" data-category="{{ report.category }}" data-comment="{{ report.comment }}" data-latitude="{{ report.latitude }}" data-longitude="{{ report.longitude }}" data-confirmed="{{ 'true' if report.confirmed else 'false' }}">
+            <td class="damage-table-time">{{ report.reported_at }}</td>
+            <td><span class="damage-type-badge is-{{ report.type }}">{{ report.category }}</span></td>
+            <td class="damage-table-comment">{{ report.comment }}</td>
+            <td class="damage-table-location">{{ '%.5f'|format(report.latitude) }}, {{ '%.5f'|format(report.longitude) }}</td>
+            <td>
+              <a class="damage-table-photo" href="{{ report.image_url }}" target="_blank" rel="noopener noreferrer">
+                <img src="{{ report.image_url }}" alt="{{ report.category }}の状況写真" loading="lazy">
+              </a>
+            </td>
+            <td class="damage-verification-cell">
+              <span class="damage-verification{% if report.confirmed %} is-verified{% endif %}">{% if report.confirmed %}✓ 確認済み{% else %}未確認{% endif %}</span>
+              <form class="damage-row-action" method="post" action="{{ url_for('update_damage_report_confirmation', report_id=report.id) }}" data-confirm="{% if report.confirmed %}この投稿を未確認に戻しますか？{% else %}この投稿を確認済みにしますか？{% endif %}">
+                <input type="hidden" name="confirmed" value="{{ 'false' if report.confirmed else 'true' }}">
+                <button class="damage-action-button" type="submit">{% if report.confirmed %}未確認に戻す{% else %}確認済みにする{% endif %}</button>
+              </form>
+            </td>
+            <td class="damage-table-actions">
+              <form class="damage-row-action" method="post" action="{{ url_for('delete_damage_report', report_id=report.id) }}" data-confirm="この投稿を削除します。保存画像も削除され、元に戻せません。続けますか？">
+                <button class="damage-action-button is-delete" type="submit">削除</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td class="damage-table-empty" colspan="7">投稿データはありません</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <div id="damageLegend" class="damage-legend" aria-label="被害情報の種類">
+    <span><i class="is-flood" aria-hidden="true"></i>道路冠水</span>
+    <span><i class="is-damage" aria-hidden="true"></i>建物被害</span>
+    <span><i class="is-landslide" aria-hidden="true"></i>土砂・倒木</span>
+    <span><i class="is-heavy_rain" aria-hidden="true"></i>大雨</span>
+    <span><i class="is-slope_failure" aria-hidden="true"></i>土砂崩れ</span>
+    <span><i class="is-fire" aria-hidden="true"></i>火災</span>
+    <span><i class="is-river_flood" aria-hidden="true"></i>河川氾濫</span>
+    <span><i class="is-other" aria-hidden="true"></i>その他</span>
+    <span><i class="damage-verified-icon" aria-hidden="true">✓</i>確認済み</span>
+  </div>
+</section>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const reports = {{ reports|tojson }};
+  const map = L.map('damageMap', { scrollWheelZoom: true }).setView([40.8222, 140.7474], 13);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+    referrerPolicy: 'strict-origin-when-cross-origin'
+  }).addTo(map);
+
+  const heatmapToggle = document.getElementById('heatmapToggle');
+  const heatPoints = reports
+    .filter(function (report) {
+      return Number.isFinite(Number(report.latitude)) && Number.isFinite(Number(report.longitude));
+    })
+    .map(function (report) {
+      return [Number(report.latitude), Number(report.longitude), 1];
+    });
+
+  if (typeof L.heatLayer === 'function') {
+    const heatLayer = L.heatLayer(heatPoints, {
+      radius: 30,
+      blur: 24,
+      maxZoom: 16,
+      max: Math.max(1, heatPoints.length / 10),
+      minOpacity: 0.25,
+      gradient: {
+        0.2: '#2b83ba',
+        0.45: '#abdda4',
+        0.65: '#ffffbf',
+        0.82: '#fdae61',
+        1: '#d7191c'
+      }
+    });
+
+    heatmapToggle.addEventListener('change', function () {
+      if (heatmapToggle.checked) {
+        heatLayer.addTo(map);
+      } else if (map.hasLayer(heatLayer)) {
+        map.removeLayer(heatLayer);
+      }
+    });
+  } else {
+    heatmapToggle.disabled = true;
+    heatmapToggle.title = 'ヒートマップ機能を読み込めませんでした';
+  }
+
+  const markerStyles = {
+    flood: { label: '冠', className: 'is-flood' },
+    damage: { label: '建', className: 'is-damage' },
+    landslide: { label: '土', className: 'is-landslide' },
+    heavy_rain: { label: '雨', className: 'is-heavy_rain' },
+    slope_failure: { label: '崩', className: 'is-slope_failure' },
+    fire: { label: '火', className: 'is-fire' },
+    river_flood: { label: '氾', className: 'is-river_flood' },
+    other: { label: '他', className: 'is-other' }
+  };
+  const bounds = [];
+
+  reports.forEach(function (report) {
+    const style = markerStyles[report.type] || { label: '!', className: 'is-damage' };
+    const verifiedClass = report.confirmed ? ' is-verified' : '';
+    const verifiedIcon = report.confirmed ? '<span class="damage-marker-check" aria-label="確認済み">✓</span>' : '';
+    const marker = L.marker([report.latitude, report.longitude], {
+      icon: L.divIcon({
+        className: 'damage-marker-wrap',
+        html: `<span class="damage-marker ${style.className}${verifiedClass}" aria-hidden="true">${style.label}${verifiedIcon}</span>`,
+        iconSize: [38, 38],
+        iconAnchor: [19, 19],
+        popupAnchor: [0, -18]
+      })
+    }).addTo(map);
+
+    const popup = document.createElement('article');
+    popup.className = 'damage-popup';
+
+    const image = document.createElement('img');
+    image.src = report.image_url;
+    image.alt = `${report.category}の状況写真`;
+    image.loading = 'lazy';
+    image.referrerPolicy = 'no-referrer';
+    popup.appendChild(image);
+
+    const heading = document.createElement('h2');
+    heading.textContent = report.category;
+    popup.appendChild(heading);
+
+    const verification = document.createElement('p');
+    verification.className = report.confirmed ? 'damage-popup-verification is-verified' : 'damage-popup-verification';
+    verification.textContent = report.confirmed ? '✓ 確認済み' : '未確認';
+    popup.appendChild(verification);
+
+    const comment = document.createElement('p');
+    comment.textContent = report.comment;
+    popup.appendChild(comment);
+
+    const reportedAt = document.createElement('time');
+    reportedAt.textContent = report.reported_at;
+    popup.appendChild(reportedAt);
+
+    marker.bindPopup(popup, { maxWidth: 320 });
+    bounds.push([report.latitude, report.longitude]);
+  });
+
+  const tableBody = document.querySelector('.damage-table tbody');
+  const sortButtons = Array.from(document.querySelectorAll('.damage-sort-button'));
+  let currentSortKey = null;
+  let currentSortDirection = 'asc';
+
+  function sortReports(key) {
+    const direction = key === currentSortKey
+      ? (currentSortDirection === 'asc' ? 'desc' : 'asc')
+      : (key === 'reported_at' || key === 'confirmed' ? 'desc' : 'asc');
+    const rows = Array.from(tableBody.querySelectorAll('tr[data-reported-at]'));
+
+    rows.sort(function (left, right) {
+      let comparison;
+      if (key === 'location') {
+        comparison = Number(left.dataset.latitude) - Number(right.dataset.latitude)
+          || Number(left.dataset.longitude) - Number(right.dataset.longitude);
+      } else if (key === 'confirmed') {
+        comparison = Number(left.dataset.confirmed === 'true') - Number(right.dataset.confirmed === 'true');
+      } else {
+        const dataKey = key === 'reported_at' ? 'reportedAt' : key;
+        comparison = left.dataset[dataKey].localeCompare(right.dataset[dataKey], 'ja');
+      }
+      return comparison * (direction === 'asc' ? 1 : -1);
+    });
+
+    rows.forEach(function (row) { tableBody.appendChild(row); });
+    currentSortKey = key;
+    currentSortDirection = direction;
+    sortButtons.forEach(function (button) {
+      const isCurrent = button.dataset.sortKey === key;
+      const heading = button.closest('th');
+      heading.setAttribute('aria-sort', isCurrent ? (direction === 'asc' ? 'ascending' : 'descending') : 'none');
+      button.querySelector('.damage-sort-indicator').textContent = isCurrent ? (direction === 'asc' ? '↑' : '↓') : '↕';
+    });
+  }
+
+  sortButtons.forEach(function (button) {
+    button.addEventListener('click', function () { sortReports(button.dataset.sortKey); });
+  });
+  sortReports('reported_at');
+
+  document.querySelectorAll('.damage-row-action[data-confirm]').forEach(function (form) {
+    form.addEventListener('submit', function (event) {
+      if (!window.confirm(form.dataset.confirm)) event.preventDefault();
+    });
+  });
+
+  if (bounds.length > 1) {
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+  } else if (bounds.length === 1) {
+    map.setView(bounds[0], 14);
+  }
+
+  const mapTab = document.getElementById('mapTab');
+  const listTab = document.getElementById('listTab');
+  const mapPanel = document.getElementById('damageMapPanel');
+  const listPanel = document.getElementById('damageListPanel');
+  const legend = document.getElementById('damageLegend');
+  const tabs = [mapTab, listTab];
+
+  function showView(view) {
+    const showMap = view === 'map';
+    mapTab.setAttribute('aria-selected', String(showMap));
+    listTab.setAttribute('aria-selected', String(!showMap));
+    mapTab.tabIndex = showMap ? 0 : -1;
+    listTab.tabIndex = showMap ? -1 : 0;
+    mapTab.classList.toggle('is-active', showMap);
+    listTab.classList.toggle('is-active', !showMap);
+    mapPanel.hidden = !showMap;
+    listPanel.hidden = showMap;
+    legend.hidden = !showMap;
+
+    if (showMap) {
+      window.requestAnimationFrame(function () {
+        map.invalidateSize({ pan: false });
+      });
+    }
+  }
+
+  mapTab.addEventListener('click', function () { showView('map'); });
+  listTab.addEventListener('click', function () { showView('list'); });
+  tabs.forEach(function (tab, index) {
+    tab.addEventListener('keydown', function (event) {
+      let nextIndex;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+        nextIndex = (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+      } else if (event.key === 'Home') {
+        nextIndex = 0;
+      } else if (event.key === 'End') {
+        nextIndex = tabs.length - 1;
+      } else {
+        return;
+      }
+      event.preventDefault();
+      tabs[nextIndex].focus();
+      tabs[nextIndex].click();
+    });
+  });
+});
+</script>
+{% endblock %}

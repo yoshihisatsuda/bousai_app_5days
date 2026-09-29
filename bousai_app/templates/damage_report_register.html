@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block title %}被害情報登録画面（デモ用） | 防災アプリ{% endblock %}
+
+{% block content %}
+<section class="damage-register-page">
+  <header class="damage-register-header">
+    <div>
+      <p class="damage-register-kicker">DEMO ENTRY</p>
+      <h1>被害情報登録画面（デモ用）</h1>
+      <p>位置情報・写真・状況コメントを登録します。</p>
+    </div>
+    <a class="damage-register-back" href="{{ url_for('damage_reports_dashboard') }}">被害情報一覧へ</a>
+  </header>
+
+  {% if error %}
+  <p class="damage-register-alert" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <form class="damage-register-form" method="post" enctype="multipart/form-data">
+    <div class="damage-register-layout">
+      <div class="damage-form-fields">
+        <div class="damage-form-field">
+          <label for="reportType">被害の種類</label>
+          <select id="reportType" name="type" required>
+            {% for type, label in report_types.items() %}
+            <option value="{{ type }}"{% if form_values.type == type %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <fieldset class="damage-coordinate-fields">
+          <legend>位置情報 <span>地図をクリックするか、座標を入力</span></legend>
+          <div class="damage-coordinate-inputs">
+            <div class="damage-form-field">
+              <label for="latitude">緯度</label>
+              <input id="latitude" name="latitude" type="number" min="-90" max="90" step="any" value="{{ form_values.latitude }}" placeholder="例: 40.8222" required>
+            </div>
+            <div class="damage-form-field">
+              <label for="longitude">経度</label>
+              <input id="longitude" name="longitude" type="number" min="-180" max="180" step="any" value="{{ form_values.longitude }}" placeholder="例: 140.7474" required>
+            </div>
+          </div>
+        </fieldset>
+
+        <div class="damage-form-field">
+          <label for="comment">状況コメント <span>任意・1000文字以内</span></label>
+          <textarea id="comment" name="comment" rows="5" maxlength="1000" placeholder="被害の状況や周辺の通行状況を入力">{{ form_values.comment }}</textarea>
+        </div>
+
+        <div class="damage-form-field">
+          <label>状況写真 <span>JPEG / PNG / GIF / WebP、8MB以内</span></label>
+          <div class="damage-photo-source" role="group" aria-label="写真の選択方法">
+            <button id="cameraButton" class="damage-secondary-button" type="button">カメラで撮影</button>
+            <button id="fileButton" class="damage-secondary-button" type="button">ファイルから選択</button>
+          </div>
+          <input id="photo" class="damage-file-input" name="photo" type="file" accept="image/jpeg,image/png,image/gif,image/webp" tabindex="-1" aria-label="状況写真" aria-required="true">
+          <p id="photoSelectionStatus" class="damage-photo-selection-status" aria-live="polite">写真を撮影するか、端末から選択してください。</p>
+          <p id="photoWorkflowHint" class="damage-photo-selection-status" hidden></p>
+          <div id="photoPreview" class="damage-photo-preview" hidden>
+            <img id="photoPreviewImage" alt="選択した状況写真のプレビュー">
+            <span id="photoPreviewName"></span>
+          </div>
+        </div>
+      </div>
+
+      <section class="damage-location-picker" aria-labelledby="location-picker-title">
+        <div class="damage-location-heading">
+          <div>
+            <h2 id="location-picker-title">発生場所</h2>
+            <p>地図をクリックするか、端末の位置情報を取得</p>
+          </div>
+          <button id="currentLocationButton" class="damage-secondary-button" type="button">端末GPSで取得</button>
+        </div>
+        <div id="locationPickerMap" class="damage-location-map" aria-label="発生場所を選択する地図"></div>
+        <p id="locationStatus" class="damage-location-status" aria-live="polite">GPS取得にはブラウザーの位置情報許可が必要です。地図をクリックして指定することもできます。</p>
+      </section>
+    </div>
+
+    <div class="damage-register-actions">
+      <a href="{{ url_for('damage_reports_dashboard') }}">キャンセル</a>
+      <button class="damage-primary-button" type="submit">被害情報を登録</button>
+    </div>
+  </form>
+</section>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const latitudeInput = document.getElementById('latitude');
+  const longitudeInput = document.getElementById('longitude');
+  const locationStatus = document.getElementById('locationStatus');
+  const currentLocationButton = document.getElementById('currentLocationButton');
+  const map = L.map('locationPickerMap').setView([40.8222, 140.7474], 12);
+  let marker;
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+    referrerPolicy: 'strict-origin-when-cross-origin'
+  }).addTo(map);
+
+  function setLocation(latitude, longitude, zoom, statusMessage) {
+    latitudeInput.value = latitude.toFixed(6);
+    longitudeInput.value = longitude.toFixed(6);
+    const position = [latitude, longitude];
+    if (marker) {
+      marker.setLatLng(position);
+    } else {
+      marker = L.marker(position).addTo(map);
+    }
+    if (zoom) map.setView(position, zoom);
+    locationStatus.textContent = statusMessage || `地図上で選択: ${latitudeInput.value}, ${longitudeInput.value}`;
+    locationStatus.classList.remove('is-error');
+  }
+
+  map.on('click', function (event) {
+    setLocation(event.latlng.lat, event.latlng.lng);
+  });
+
+  function updateFromCoordinates() {
+    const latitude = Number(latitudeInput.value);
+    const longitude = Number(longitudeInput.value);
+    if (!latitudeInput.value || !longitudeInput.value || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return;
+    setLocation(latitude, longitude, 14, `入力座標: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`);
+  }
+
+  latitudeInput.addEventListener('change', updateFromCoordinates);
+  longitudeInput.addEventListener('change', updateFromCoordinates);
+
+  if (latitudeInput.value && longitudeInput.value) updateFromCoordinates();
+
+  currentLocationButton.addEventListener('click', function () {
+    if (!navigator.geolocation) {
+      locationStatus.textContent = 'このブラウザーでは端末の位置情報を取得できません。地図をクリックしてください。';
+      locationStatus.classList.add('is-error');
+      return;
+    }
+    locationStatus.textContent = '現在地を取得しています…';
+    locationStatus.classList.remove('is-error');
+    currentLocationButton.disabled = true;
+    navigator.geolocation.getCurrentPosition(function (position) {
+      const accuracy = Math.round(position.coords.accuracy);
+      setLocation(
+        position.coords.latitude,
+        position.coords.longitude,
+        15,
+        `端末の位置情報を取得しました（精度 約${accuracy}m）: ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`
+      );
+      currentLocationButton.disabled = false;
+    }, function (error) {
+      const messages = {
+        1: '位置情報の利用が許可されませんでした。ブラウザーの設定を確認するか、地図をクリックしてください。',
+        2: '端末の位置情報を取得できませんでした。GPSを有効にするか、地図をクリックしてください。',
+        3: '位置情報の取得がタイムアウトしました。もう一度お試しください。'
+      };
+      locationStatus.textContent = messages[error.code] || '位置情報を取得できませんでした。地図をクリックしてください。';
+      locationStatus.classList.add('is-error');
+      currentLocationButton.disabled = false;
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  });
+
+  const photoInput = document.getElementById('photo');
+  const photoSelectionStatus = document.getElementById('photoSelectionStatus');
+  const photoWorkflowHint = document.getElementById('photoWorkflowHint');
+  const cameraButton = document.getElementById('cameraButton');
+  const preview = document.getElementById('photoPreview');
+  const previewImage = document.getElementById('photoPreviewImage');
+  const previewName = document.getElementById('photoPreviewName');
+  let previewUrl;
+  const platform = navigator.userAgentData?.platform || navigator.platform || '';
+  const isWindows = /Windows/i.test(navigator.userAgent) || /^Win/i.test(platform);
+
+  if (isWindows) {
+    photoWorkflowHint.textContent = 'Windowsではカメラアプリを起動します。撮影後にこの画面へ戻り、「ファイルから選択」から撮影した画像を読み込んでください。アプリ起動の確認が表示されたら許可してください。';
+    photoWorkflowHint.hidden = false;
+  }
+
+  document.getElementById('cameraButton').addEventListener('click', function () {
+    if (isWindows) {
+      photoSelectionStatus.classList.remove('is-error');
+      photoSelectionStatus.textContent = 'Windowsカメラアプリを起動します。';
+      window.location.href = 'microsoft.windows.camera:';
+      return;
+    }
+    photoInput.setAttribute('capture', 'environment');
+    photoInput.click();
+  });
+
+  document.getElementById('fileButton').addEventListener('click', function () {
+    photoInput.removeAttribute('capture');
+    photoInput.click();
+  });
+
+  photoInput.addEventListener('change', function () {
+    const file = photoInput.files[0];
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (!file) {
+      if (!photoInput.files.length) {
+        preview.hidden = true;
+        photoSelectionStatus.textContent = '写真を撮影するか、端末から選択してください。';
+      }
+      return;
+    }
+    photoSelectionStatus.classList.remove('is-error');
+    previewUrl = URL.createObjectURL(file);
+    previewImage.src = previewUrl;
+    previewName.textContent = file.name;
+    photoSelectionStatus.textContent = '選択中の写真';
+    preview.hidden = false;
+  });
+
+  photoInput.form.addEventListener('submit', function (event) {
+    if (photoInput.files.length) return;
+    event.preventDefault();
+    photoSelectionStatus.textContent = '登録する写真を撮影するか、ファイルから選択してください。';
+    photoSelectionStatus.classList.add('is-error');
+    cameraButton.focus();
+  });
+});
+</script>
+{% endblock %}

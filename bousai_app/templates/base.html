@@ -4,30 +4,35 @@
   <meta charset="utf-8">
   <title>{% block title %}防災アプリ{% endblock %}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
 <body>
-  <!-- ヘッダー -->
-  <h1>防災アプリ</h1>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="防災アプリ ホーム">防災アプリ</a>
+      <details class="menu-dropdown">
+        <summary class="menu-toggle" aria-label="メニューを開く">
+          <span></span><span></span><span></span>
+        </summary>
+        <nav class="menu-panel" aria-label="メインメニュー">
+          <a href="/"{% if request.endpoint == 'index' %} aria-current="page"{% endif %}>ホーム</a>
+          <a href="/shelter_search"{% if request.endpoint == 'shelter_search' %} aria-current="page"{% endif %}>避難所検索</a>
+          <a href="/shelter_register"{% if request.endpoint == 'shelter_register' %} aria-current="page"{% endif %}>避難所登録</a>
+          <a href="/board"{% if request.endpoint == 'board' %} aria-current="page"{% endif %}>指示・発信ボード</a>
+          <a href="/damage_reports"{% if request.endpoint == 'damage_reports_dashboard' %} aria-current="page"{% endif %}>被害情報一覧</a>
+          <a href="/damage_reports/register"{% if request.endpoint == 'damage_report_register' %} aria-current="page"{% endif %}>被害情報登録画面（デモ用）</a>
+        {% if session.logged_in %}
+          <span class="menu-account">{{ session.username or '管理者' }}</span>
+          <a href="/logout">ログアウト</a>
+        {% else %}
+          <a href="/login">ログイン</a>
+        {% endif %}
+        </nav>
+      </details>
+    </div>
+  </header>
 
-  <!-- ナビゲーション -->
-  <nav>
-    <a href="/">ホーム</a> |
-    <a href="/shelter_search">避難所検索</a> |
-    <a href="/shelter_register">避難所登録</a> |
-    <a href="/board">指示・発信ボード</a>
-    ｜
-    {% if session.logged_in %}
-      ログイン中{% if session.username %}（{{ session.username }}）{% endif %}
-      <a href="/logout">ログアウト</a>
-    {% else %}
-      未ログイン
-      <a href="/login">ログイン</a>
-    {% endif %}
-  </nav>
-  <hr>
-
-  <main>
-    <!-- ここに子テンプレートの content が入る -->
+  <main class="page-shell{% if request.endpoint == 'index' %} home-shell{% elif request.endpoint == 'damage_reports_dashboard' %} damage-shell{% endif %}">
     {% block content %}{% endblock %}
   </main>
 </body>

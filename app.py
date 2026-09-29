@@ -1,8 +1,10 @@
-from flask import Flask, jsonify, request, render_template, session, redirect, url_for
+from flask import Flask, abort, jsonify, request, render_template, session, redirect, url_for
 from urllib.parse import urlparse, urljoin
 from functools import wraps
 import json
+import math
 import os
+import uuid
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +19,7 @@ app = Flask(
     static_folder=os.path.join(APP_DIR, 'static'),
 )
 app.secret_key = 'your-secret-key-here'
+app.config['MAX_CONTENT_LENGTH'] = 8 * 1024 * 1024
 
 # 管理者認証情報
 ADMIN_CREDENTIALS = {
@@ -28,8 +31,8 @@ ADMIN_CREDENTIALS = {
 PREFECTURE_CODE = "020000"  # 青森県
 AREA_NAME = "青森市"
 
-# ワークショップ課題：青森市の市区町村コードに変更する
-AREA_CODE = "1420500"
+# 気象庁防災情報 XML の青森市（市町村等をまとめたエリアコード）
+AREA_CODE = "0220100"
 
 WARNING_URL = (
     f"https://www.jma.go.jp/bosai/warning/data/r8/{PREFECTURE_CODE}.json"
@@ -82,6 +85,18 @@ WARNING_CODES = {
 # サンプルデータの読み込み
 DATA_FILE = os.path.join(APP_DIR, 'data', 'shelters.json')
 INSTRUCTIONS_FILE = os.path.join(APP_DIR, 'data', 'instructions.json')
+DAMAGE_REPORTS_FILE = os.path.join(APP_DIR, 'data', 'damage_reports.json')
+DAMAGE_REPORT_UPLOAD_DIR = os.path.join(APP_DIR, 'static', 'damage_uploads')
+DAMAGE_REPORT_TYPES = {
+    'flood': '道路冠水',
+    'damage': '建物被害',
+    'landslide': '土砂・倒木',
+    'heavy_rain': '大雨',
+    'slope_failure': '土砂崩れ',
+    'fire': '火災',
+    'river_flood': '河川氾濫',
+    'other': 'その他'
+}
 
 def load_json(path, default):
     """JSONファイルを読み込む（存在しない・壊れている場合は default を返す）"""
@@ -91,8 +106,43 @@ def load_json(path, default):
     except (FileNotFoundError, json.JSONDecodeError):
         return default
 
+def get_damage_image_extension(upload):
+    """画像のシグネチャを確認し、許可形式の拡張子を返す"""
+    header = upload.stream.read(12)
+    upload.stream.seek(0)
+    if header.startswith(b'\xff\xd8\xff'):
+        return '.jpg'
+    if header.startswith(b'\x89PNG\r\n\x1a\n'):
+        return '.png'
+    if header.startswith((b'GIF87a', b'GIF89a')):
+        return '.gif'
+    if header[:4] == b'RIFF' and header[8:12] == b'WEBP':
+        return '.webp'
+    return None
+
+def save_damage_reports(reports):
+    """被害情報を一時ファイル経由で JSON に保存する"""
+    temporary_data_path = f'{DAMAGE_REPORTS_FILE}.tmp'
+    with open(temporary_data_path, 'w', encoding='utf-8') as data_file:
+        json.dump(reports, data_file, ensure_ascii=False, indent=2)
+    os.replace(temporary_data_path, DAMAGE_REPORTS_FILE)
+
+def get_uploaded_damage_image_path(image_url):
+    """投稿画像が管理対象のアップロード領域内にある場合だけパスを返す"""
+    parsed_url = urlparse(image_url or '')
+    upload_prefix = '/static/damage_uploads/'
+    if parsed_url.scheme or parsed_url.netloc or not parsed_url.path.startswith(upload_prefix):
+        return None
+
+    upload_root = os.path.realpath(DAMAGE_REPORT_UPLOAD_DIR)
+    image_path = os.path.realpath(os.path.join(upload_root, os.path.basename(parsed_url.path)))
+    if os.path.commonpath((upload_root, image_path)) != upload_root:
+        return None
+    return image_path
+
 shelters = load_json(DATA_FILE, [])
 instructions = load_json(INSTRUCTIONS_FILE, [])
+damage_reports = load_json(DAMAGE_REPORTS_FILE, [])
 
 def save_instructions():
     """指示ボードのデータをファイルに保存する"""
@@ -278,10 +328,46 @@ def logout():
     return redirect(url_for('index'))
 
 # 避難所登録ページ※user が避難所登録ページについて具体的に修正指示しない限り、このコードは正しいのでこのまま保持すること。
-@app.route('/shelter_register')
+@app.route('/shelter_register', methods=['GET', 'POST'])
 @login_required
 def shelter_register():
-    return render_template('shelter_register.html')
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        if not name:
+            return render_template(
+                'shelter_register.html',
+                error=True,
+                message="避難所名を入力してください。",
+                shelter_names=[shelter.get('name', '') for shelter in shelters]
+            )
+
+        is_duplicate = any(
+            shelter.get('name', '').strip() == name for shelter in shelters
+        )
+        if is_duplicate and request.form.get('confirm_duplicate') != 'yes':
+            return render_template(
+                'shelter_register.html',
+                duplicate=True,
+                duplicate_name=name,
+                shelter_names=[shelter.get('name', '') for shelter in shelters]
+            )
+
+        shelter_id = max((shelter.get('id', 0) for shelter in shelters), default=0) + 1
+        shelters.append({'id': shelter_id, 'name': name})
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(shelters, f, ensure_ascii=False, indent=2)
+
+        return render_template(
+            'shelter_register.html',
+            success=True,
+            message="避難所を登録しました。",
+            shelter_names=[shelter.get('name', '') for shelter in shelters]
+        )
+
+    return render_template(
+        'shelter_register.html',
+        shelter_names=[shelter.get('name', '') for shelter in shelters]
+    )
 
 # 避難所検索ページ
 @app.route('/shelter_search')
@@ -300,6 +386,134 @@ def all_shelters():
 def board():
     resident_instructions = [i for i in instructions if i.get('target') == '住民']
     return render_template('board.html', instructions=resident_instructions)
+
+# 被害情報一覧：地図上に報告位置と詳細を表示する
+@app.route('/damage_reports')
+def damage_reports_dashboard():
+    return render_template('damage_reports.html', reports=damage_reports)
+
+# デモ用被害情報登録：ローカル JSON と画像ファイルに保存する
+@app.route('/damage_reports/register', methods=['GET', 'POST'])
+def damage_report_register():
+    global damage_reports
+
+    form_values = {
+        'type': request.form.get('type', 'flood'),
+        'latitude': request.form.get('latitude', ''),
+        'longitude': request.form.get('longitude', ''),
+        'comment': request.form.get('comment', '')
+    }
+
+    def render_form(error=None):
+        return render_template(
+            'damage_report_register.html',
+            report_types=DAMAGE_REPORT_TYPES,
+            form_values=form_values,
+            error=error
+        )
+
+    if request.method == 'GET':
+        return render_form()
+
+    if form_values['type'] not in DAMAGE_REPORT_TYPES:
+        return render_form('被害の種類を選択してください。')
+
+    try:
+        latitude = float(form_values['latitude'])
+        longitude = float(form_values['longitude'])
+    except (TypeError, ValueError):
+        return render_form('地図をクリックするか、緯度・経度を入力してください。')
+
+    if not math.isfinite(latitude) or not math.isfinite(longitude) or not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        return render_form('緯度は -90〜90、経度は -180〜180 の範囲で入力してください。')
+
+    comment = form_values['comment'].strip()
+    if len(comment) > 1000:
+        return render_form('コメントは1000文字以内で入力してください。')
+
+    photo = request.files.get('photo')
+    if not photo or not photo.filename:
+        return render_form('状況写真を選択してください。')
+
+    extension = get_damage_image_extension(photo)
+    if not extension:
+        return render_form('JPEG、PNG、GIF、WebP の画像を選択してください。')
+
+    filename = f'{uuid.uuid4().hex}{extension}'
+    image_path = os.path.join(DAMAGE_REPORT_UPLOAD_DIR, filename)
+    image_url = url_for('static', filename=f'damage_uploads/{filename}')
+    report = {
+        'id': max((item.get('id', 0) for item in damage_reports), default=0) + 1,
+        'latitude': latitude,
+        'longitude': longitude,
+        'type': form_values['type'],
+        'category': DAMAGE_REPORT_TYPES[form_values['type']],
+        'comment': comment,
+        'image_url': image_url,
+        'reported_at': datetime.now(JST).strftime('%Y-%m-%d %H:%M'),
+        'confirmed': False
+    }
+    try:
+        os.makedirs(DAMAGE_REPORT_UPLOAD_DIR, exist_ok=True)
+        photo.save(image_path)
+        updated_reports = [*damage_reports, report]
+        save_damage_reports(updated_reports)
+    except OSError:
+        for path in (image_path, f'{DAMAGE_REPORTS_FILE}.tmp'):
+            if os.path.exists(path):
+                os.remove(path)
+        return render_form('保存に失敗しました。もう一度お試しください。')
+
+    damage_reports = updated_reports
+    return redirect(url_for('damage_reports_dashboard'))
+
+@app.route('/damage_reports/<int:report_id>/confirmation', methods=['POST'])
+def update_damage_report_confirmation(report_id):
+    global damage_reports
+
+    confirmed_value = request.form.get('confirmed')
+    if confirmed_value not in ('true', 'false'):
+        abort(400)
+
+    if not any(report.get('id') == report_id for report in damage_reports):
+        abort(404)
+
+    confirmed = confirmed_value == 'true'
+    updated_reports = [
+        {**report, 'confirmed': confirmed} if report.get('id') == report_id else report
+        for report in damage_reports
+    ]
+    try:
+        save_damage_reports(updated_reports)
+    except OSError:
+        abort(500)
+
+    damage_reports = updated_reports
+    return redirect(url_for('damage_reports_dashboard'))
+
+@app.route('/damage_reports/<int:report_id>/delete', methods=['POST'])
+def delete_damage_report(report_id):
+    global damage_reports
+
+    report = next((item for item in damage_reports if item.get('id') == report_id), None)
+    if report is None:
+        abort(404)
+
+    updated_reports = [item for item in damage_reports if item.get('id') != report_id]
+    try:
+        save_damage_reports(updated_reports)
+    except OSError:
+        abort(500)
+
+    damage_reports = updated_reports
+    image_path = get_uploaded_damage_image_path(report.get('image_url'))
+    if image_path:
+        try:
+            os.remove(image_path)
+        except FileNotFoundError:
+            pass
+
+    return redirect(url_for('damage_reports_dashboard'))
 
 # 検索結果ページ：templates/search_results.html を返す
 @app.route('/search_results')

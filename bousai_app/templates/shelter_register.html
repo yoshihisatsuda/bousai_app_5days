@@ -13,11 +13,36 @@
   <p>{{ message }}</p>
 {% endif %}
 
-<form method="POST">
+{% if duplicate %}
+  <p role="alert">「{{ duplicate_name }}」はすでに登録されています。重複して登録しますか？</p>
+  <form method="POST">
+    <input type="hidden" name="name" value="{{ duplicate_name }}">
+    <input type="hidden" name="confirm_duplicate" value="yes">
+    <button type="submit">重複して登録</button>
+    <a href="{{ url_for('shelter_register') }}">キャンセル</a>
+  </form>
+{% else %}
+<form id="shelter-register-form" method="POST">
   <p>
     <label for="name">避難所名（必須）</label><br>
     <input type="text" id="name" name="name">
   </p>
+  <input type="hidden" id="confirm_duplicate" name="confirm_duplicate" value="">
   <p><button type="submit">登録</button></p>
 </form>
+<script>
+  const registeredShelterNames = {{ shelter_names|tojson }};
+  const registerForm = document.getElementById('shelter-register-form');
+  registerForm.addEventListener('submit', (event) => {
+    const shelterName = document.getElementById('name').value.trim();
+    if (!registeredShelterNames.includes(shelterName)) return;
+
+    if (!window.confirm('この避難所名はすでに登録されています。重複して登録しますか？')) {
+      event.preventDefault();
+      return;
+    }
+    document.getElementById('confirm_duplicate').value = 'yes';
+  });
+</script>
+{% endif %}
 {% endblock %}

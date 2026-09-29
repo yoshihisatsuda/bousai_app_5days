@@ -1,0 +1,33 @@
+[
+  {
+    "id": 1,
+    "latitude": 40.8291,
+    "longitude": 140.7356,
+    "type": "flood",
+    "category": "道路冠水",
+    "comment": "駅前通りの一部で水がたまり、車両が通りにくくなっています。",
+    "image_url": "https://images.unsplash.com/photo-1547683905-f686c993aae5?auto=format&fit=crop&w=900&q=80",
+    "reported_at": "2026-09-29 09:18"
+  },
+  {
+    "id": 2,
+    "latitude": 40.8227,
+    "longitude": 140.7412,
+    "type": "damage",
+    "category": "建物被害",
+    "confirmed": true,
+    "comment": "建物外壁の一部が落下しています。周辺を通行する際は注意してください。",
+    "image_url": "https://images.unsplash.com/photo-1519608487953-e999c86e7455?auto=format&fit=crop&w=900&q=80",
+    "reported_at": "2026-09-29 09:42"
+  },
+  {
+    "id": 3,
+    "latitude": 40.8126,
+    "longitude": 140.7861,
+    "type": "landslide",
+    "category": "土砂・倒木",
+    "comment": "斜面から土砂と倒木が道路側に流出しています。現場付近は通行止めです。",
+    "image_url": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80",
+    "reported_at": "2026-09-29 10:06"
+  }
+]
